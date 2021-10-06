@@ -175,6 +175,7 @@ const noframework = {
 	Template,
 	setup
 };
+// export / <script type="module"> dont work without a local webserver
 window.noframework = noframework;
 
 })();
