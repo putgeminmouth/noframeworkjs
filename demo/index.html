@@ -1,9 +1,110 @@
 <html>
 <head>
 	<script src="../src/noframework.js"></script>
+	<style>
+		body {
+			background-color: #161b21;
+			color: #c9d1d9;
+		}
+
+		input, button {
+			background-color: #0d1116;
+			color: #c3c3c5;
+		}
+	</style>
 </head>
 <body>
-	
+	<div type="text" data-nf-any data-nf-tpl="Version ${state().version}"></div>
+	<div style='border: solid black 1px'>
+		<p>New</p>
+		<div>Name<input type="text" name="name" data-nf-id="newItem" data-nf-tpl="${data.name}"></div>
+		<div>Age<button name="ageDec">-</button><input type="number" name="age" data-nf-id="newItem" data-nf-tpl="${data.age}"><button name="ageInc">+</button></div>
+		<div>Alive<input type="checkbox" name="alive" data-nf-id="newItem" data-nf-tpl="${data.alive}"></div>
+		<button name='add'>Add</button><button name='delete'>Delete</button>
+		<table name='items'>
+			<thead>
+				<tr>
+					<th></th><th>Name</th><th>Age</th><th>Alive</th>
+				</tr>
+			</thead>
+			<tbody></tbody>
+		</table>
+	</div>
+	<div style='border: solid black 1px'>
+		<p>Selected</p>
+		<div data-nf-id="selected" data-nf-tpl="Name ${data.name||''}"></div>
+		<div data-nf-id="selected" data-nf-tpl="Age ${data.age||''}"></div>
+		<div data-nf-id="selected" data-nf-tpl="Alive ${data.alive||''}"></div>
+	</div>
+	<script type="text/javascript">
+		const {idFactory, proxyFactory, template} = noframework.setup();
+		proxyFactory.options.meta = { unProxy: '__unProxy' };
+
+		const Item = (i) => Object.assign(idFactory.withId({}), {name: '', age: 0, alive: false}, i);
+		const state = proxyFactory.create(idFactory.withId({
+			version: 0,
+			selected: {
+				id: 'selected'
+			},
+			newItem: Item({
+				id: 'newItem',
+				name: 'Mr X',
+				age: 42,
+				alive: true
+			}),
+			items: idFactory.withId([
+				Item({
+					name: 'William Birkin',
+					age: 36,
+					alive: false
+				}), Item({
+					name: 'Sherry Birkin',
+					age: 35,
+					alive: true
+				})
+			])
+		}));
+
+		proxyFactory.events.addEventListener('dirty', () => {
+			state.__unProxy.version++;
+		});
+
+		template.globals.all = () => proxyFactory.all;
+		template.globals.state = () => state;
+
+		document.querySelector('table[name=items] > tbody').setAttribute('data-nf-id', state.items.id);
+		document.querySelector('table[name=items] > tbody').dataRender = (elm, data) => {
+			const items = state.items;
+			elm.innerHTML = '';
+			items.forEach(item => {
+				const r = document.createElement('tr');
+				r.setAttribute('data-nf-id', items.id);
+				r.dataRender = (r, data) => r.innerHTML = `<td><input type="radio" name="select"></td><td>${item.name}</td><td>${item.age}</td><td><input disabled type="checkbox" ${item.alive&&"checked"}></td>`;
+				r.dataRender(r, item);
+				r.querySelector('[name=select]').addEventListener('change', () => {
+					Object.assign(state.selected, {...item}, {id: 'selected', target: item.id});
+				});
+				elm.appendChild(r);
+			});
+		};
+		document.querySelector('input[name=name]').addEventListener('change', e => state.newItem.name = e.currentTarget.value);
+		document.querySelector('input[name=age]').addEventListener('change', e => state.newItem.age = e.currentTarget.value);
+		document.querySelector('input[name=alive]').addEventListener('change', e => state.newItem.alive = e.currentTarget.checked);
+		document.querySelector('button[name=ageDec]').addEventListener('click', e => state.newItem.age--);
+		document.querySelector('button[name=ageInc]').addEventListener('click', e => state.newItem.age++);
+		document.querySelector('button[name=add]').addEventListener('click', e => {
+			const newItem = idFactory.withId({...state.newItem});
+			Object.assign(state.newItem, Item({id: state.newItem.id}));
+			state.items.push(newItem);
+		});
+		document.querySelector('button[name=delete]').addEventListener('click', e => {
+			const i = state.items.findIndex(x => x.id === state.selected.target);
+			if (i != -1)
+				state.items.splice(i, 1);
+			Object.assign(state.selected, Item({id: state.selected.id}));
+		});
+		proxyFactory.all.forEach(x => proxyFactory.markDirty(x));
+	</script>
 </body>
 
 </html>

@@ -1,8 +1,16 @@
 (() => {
 
+
+const Option = x => {
+	const o = x == null ? [] : [x]; // == intentional
+	o.match = (ifsome, ifnone) => o.length ? ifsome(o[0]) : ifnone();
+	return o;
+};
+
 class ProxyFactory {
 	#all = [];
 	#dirty = {};
+	#options = {};
 	#events = new EventTarget();
 
 	constructor() {
@@ -24,6 +32,7 @@ class ProxyFactory {
 	get dirty() { return this.#dirty; }
 	get all() { return this.#all.map(x => x.deref()).filter(x => x !== undefined); }
 	get events() { return this.#events; }
+	get options() { return this.#options; }
 
 	create(target) {
 		Object.keys(target)
@@ -32,14 +41,17 @@ class ProxyFactory {
 
 		const p = new Proxy(target, {
 			get: (o,p) => {
-				if (p === '__isProxy') return true;
+				if (this.#options.meta === true || this.#options.meta?.isProxy === p) return true;
+				if (this.#options.meta === true || this.#options.meta?.unProxy === p) return o;
 				return o[p];
 			},
 			set: (o,p,v) => {
 				if (Array.isArray(v) || (v !== null && typeof(v) === 'object'))
 					v = this.create(v);
-				o[p] = v;
-				this.markDirty(o);
+				if (v !== o[p]) {
+					o[p] = v;
+					this.markDirty(o);
+				}
 				return true;
 			},
 			deleteProperty: (o,p) => {
@@ -57,6 +69,9 @@ class ProxyFactory {
 
 class IdFactory {
 	#gen = 0;
+	constructor(gen) {
+		this.#gen = gen || 0;
+	}
 
 	next() { return (++this.#gen).toString(); }
 
@@ -100,15 +115,42 @@ class DirtyUpdater {
 		const objRefs = Object.keys(dirty)
 			.map(id => ({obj: dirty[id], refs: Array.from(this.#selectById(id))}));
 		objRefs.push({obj: {id:''}, refs: Array.from(this.#selectAny())});
-		const renderer = (n, d) => n.dataRender && n.dataRender || n.getAttribute('data-nf-tpl') && this.#template.compile(n.getAttribute('data-nf-tpl'), d);
-		const updateElement = (n, d) => n.textContent = renderer(n, d)(d);
-		const updateInput = (n, d) => n.value = renderer(n)(d);
+		const defaultContentRenderer = (n, d) => {
+			if (n.getAttribute('data-nf-tpl')) return this.#template.compile(n.getAttribute('data-nf-tpl'), d);
+			if (n.dataContent) return n.dataContent(n, d);
+		};	
+		const customRenderer = (n, _) => n.dataRender && (d => n.dataRender(n, d));
+		const noRenderer = (n, _) => (d) => console.log(`No renderer for ${n}`);
+		const updateElement = (n, d) => {
+			Option(defaultContentRenderer(n, d)).match(
+				s => n.textContent = s(d),
+				_ => (customRenderer(n, d) || noRenderer(n, d))(d)
+			);
+		};
+		const updateTextInput = (n, d) => {
+			Option(defaultContentRenderer(n, d)).match(
+				s => n.value = s(d),
+				_ => (customRenderer(n, d) || noRenderer(n, d))(d)
+			);
+		};
+		const updateCheckboxInput = (n, d) => {
+			Option(defaultContentRenderer(n, d)).match(
+				s => n.checked = !!s(d),
+				_ => (customRenderer(n, d) || noRenderer(n, d))(d)
+			);
+		};
 		const updaterFor = (n) => {
-			if (n instanceof HTMLInputElement) return d => updateInput(n, d);
-			if (n instanceof HTMLElement) return d => updateElement(n, d);
-			return null;
-		}
-		const all = proxies.all;
+			switch (n.nodeName) {
+				case 'INPUT':
+					if (n.type === 'text') return d => updateTextInput(n, d);
+					if (n.type === 'number') return d => updateTextInput(n, d);
+					if (n.type === 'checkbox') return d => updateCheckboxInput(n, d);
+				default:
+					return d => updateElement(n, d);
+			}
+			console.warn(`Unrecognized element ${n}`);
+			return () => null;
+		};
 		objRefs.forEach(objRef => {
 			const id = objRef.obj.id;
 			const data = objRef.obj;
@@ -117,7 +159,7 @@ class DirtyUpdater {
 				return;
 			}
 			objRef.refs.forEach(elm => {
-				updaterFor(elm)({all, data});
+				updaterFor(elm)({data});
 			});
 		});
 		const after = Date.now();
@@ -132,20 +174,13 @@ class Template {
 		this.globals = {};
 	}
 
-	static merge(into) {
-		Array.from(arguments).slice(1).forEach(next => {
-			Object.keys(next).forEach(p => into[p] = next[p]);
-		});
-		return into;
-	}
-
 	compile(template, keysArrayOrObject) {
 		const sortedKeys = Object.keys(this.globals).concat(Array.isArray(keysArrayOrObject)?[].concat(keysArrayOrObject):Object.keys(keysArrayOrObject)).sort();
 		const stringTemplateBody = `return \`${template.replaceAll('`', '\\`')}\`;`
 		function StringTemplate() { return Function.apply(this, [sortedKeys].concat([stringTemplateBody])); }
 		const render = new StringTemplate();
 		return (data) => {
-			const merged = Template.merge({}, this.globals, data);
+			const merged = Object.assign({}, this.globals, data);
 			return render.apply(null, sortedKeys.map(x => merged[x]));
 		};
 	}
@@ -173,6 +208,7 @@ const noframework = {
 	Debouncer,
 	DirtyUpdater,
 	Template,
+	Option,
 	setup
 };
 // export / <script type="module"> dont work without a local webserver
