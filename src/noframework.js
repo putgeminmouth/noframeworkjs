@@ -12,6 +12,7 @@ class ProxyFactory {
 	#dirty = {};
 	#options = {};
 	#events = new EventTarget();
+	#eventsById = {};
 
 	constructor() {
 	}
@@ -19,7 +20,8 @@ class ProxyFactory {
 	markDirty(d) {
 		this.#dirty[d.id] = d;
 		if (d) {
-			this.events.dispatchEvent(new Event('dirty'));
+			this.events.dispatchEvent(Object.assign(new Event('dirty'), {data:d}));
+			this.eventsById[d.id]?.events.dispatchEvent(Object.assign(new Event('dirty'), {data:d}));
 		}
 	}
 
@@ -29,9 +31,25 @@ class ProxyFactory {
 		return d;
 	}
 
+	watchDirty(id, listener) {
+		this.#eventsById[id] = this.#eventsById[id] || { count: 0, events: new EventTarget() };
+		this.#eventsById[id].events.addEventListener('dirty', listener);
+		this.#eventsById[id].count++;
+		if (!this.#all.find(x => x.deref()?.id === id))
+			delete this.#eventsById[id];
+	}
+	unwatchDirty(id, listener) {
+		if (this.#eventsById[id]) {
+			this.#eventsById[id].events.removeEventListener('dirty', listener);
+			if (--this.#eventsById[id].count < 1)
+				delete this.#eventsById[id];
+		}
+	}
+
 	get dirty() { return this.#dirty; }
 	get all() { return this.#all.map(x => x.deref()).filter(x => x !== undefined); }
 	get events() { return this.#events; }
+	get eventsById() { return this.#eventsById; }
 	get options() { return this.#options; }
 
 	create(target) {
@@ -82,26 +100,28 @@ class IdFactory {
 }
 
 class Debouncer {
-	#timeout;
+	#timeoutId = null;
+	delay = 0;
 
 	debounce(f) {
-		if (this.#timeout)
+		if (this.#timeoutId !== null) {
 			return;
-		this.#timeout = setTimeout(() => {
-			this.#timeout = null;
+		}
+		this.#timeoutId = setTimeout(() => {
+			this.#timeoutId = null;
 			try {
 				f();
 			} catch (e) {
 				console.error(e);
 				throw e;
 			}
-		});
+		}, this.delay);
 	}
 };
 
 class DirtyUpdater {
-	#selectById = id => document.querySelectorAll(`[data-nf-id="${id}"]`)
-	#selectAny = () => document.querySelectorAll(`[data-nf-any]`)
+	#selectById = id => document.querySelectorAll(`[data-nf-id="${id}"]`);
+	#selectAny = () => document.querySelectorAll(`[data-nf-any]`);
 	#template;
 	constructor(template) {
 		this.#template = template;

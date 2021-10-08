@@ -16,10 +16,14 @@
 <body>
 	<div type="text" data-nf-any data-nf-tpl="Version ${state().version}"></div>
 	<div style='border: solid black 1px'>
+		<p>Config</p>
+		<div>Debounce<input type="number" name="debounce" data-nf-id="config" data-nf-tpl="${data.debounce}" data-nf-change="${data.name = _}"></div>
+	</div>
+	<div style='border: solid black 1px'>
 		<p>New</p>
-		<div>Name<input type="text" name="name" data-nf-id="newItem" data-nf-tpl="${data.name}"></div>
-		<div>Age<button name="ageDec">-</button><input type="number" name="age" data-nf-id="newItem" data-nf-tpl="${data.age}"><button name="ageInc">+</button></div>
-		<div>Alive<input type="checkbox" name="alive" data-nf-id="newItem" data-nf-tpl="${data.alive}"></div>
+		<div>Name<input type="text" name="name" data-nf-id="newItem" data-nf-tpl="${data.name}" data-nf-change="${data.name = _}"></div>
+		<div>Age<button name="ageDec">-</button><input type="number" name="age" data-nf-id="newItem" data-nf-tpl="${data.age}" data-nf-change="${data.age = _}"><button name="ageInc">+</button></div>
+		<div>Alive<input type="checkbox" name="alive" data-nf-id="newItem" data-nf-tpl="${data.alive}" data-nf-change="${data.alive = _}"></div>
 		<button name='add'>Add</button><button name='delete'>Delete</button>
 		<table name='items'>
 			<thead>
@@ -37,11 +41,16 @@
 		<div data-nf-id="selected" data-nf-tpl="Alive ${data.alive||''}"></div>
 	</div>
 	<script type="text/javascript">
-		const {idFactory, proxyFactory, template} = noframework.setup();
+		const {idFactory, proxyFactory, template, debouncer} = noframework.setup();
 		proxyFactory.options.meta = { unProxy: '__unProxy' };
 
 		const Item = (i) => Object.assign(idFactory.withId({}), {name: '', age: 0, alive: false}, i);
-		const state = proxyFactory.create(idFactory.withId({
+		const state = proxyFactory.create({
+			id: 'state',
+			config: {
+				id: 'config',
+				debounce: 0
+			},
 			version: 0,
 			selected: {
 				id: 'selected'
@@ -63,7 +72,7 @@
 					alive: true
 				})
 			])
-		}));
+		});
 
 		proxyFactory.events.addEventListener('dirty', () => {
 			state.__unProxy.version++;
@@ -87,6 +96,7 @@
 				elm.appendChild(r);
 			});
 		};
+		document.querySelector('input[name=debounce]').addEventListener('change', e => state.config.debounce = parseInt(e.currentTarget.value));
 		document.querySelector('input[name=name]').addEventListener('change', e => state.newItem.name = e.currentTarget.value);
 		document.querySelector('input[name=age]').addEventListener('change', e => state.newItem.age = e.currentTarget.value);
 		document.querySelector('input[name=alive]').addEventListener('change', e => state.newItem.alive = e.currentTarget.checked);
@@ -102,6 +112,9 @@
 			if (i != -1)
 				state.items.splice(i, 1);
 			Object.assign(state.selected, Item({id: state.selected.id}));
+		});
+		proxyFactory.watchDirty('config', ({data}) => {
+			debouncer.delay = data.debounce;
 		});
 		proxyFactory.all.forEach(x => proxyFactory.markDirty(x));
 	</script>
